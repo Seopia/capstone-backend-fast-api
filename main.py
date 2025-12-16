@@ -21,14 +21,14 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 MONGODB_URI = os.getenv("MONGODB_URI")
 JWT_SECRET = os.getenv("JWT_SECRET")
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"],allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 client = MongoClient(MONGODB_URI)
 collection = client["chatbot"]["messages"]
 
 model = ChatGoogleGenerativeAI(model="gemini-2.5-flash",google_api_key=GOOGLE_API_KEY,temperature=0.3,)
-
+#
 prompt = ChatPromptTemplate.from_messages([
-("system", "너는 사용자의 감정을 깊게 공감하는 정신 건강 상담 챗봇이고, 너는 무조건 사용자에게 오늘 하루에 있었던 일에 대하여 지속적으로 질문하고 공감해줘야한다. 또한 절대로 전에 했던 history 대화에 있는 질문에 답변해선 안된다."),
+("system", "너는 사용자의 감정을 깊게 공감하는 정신 건강 상담 챗봇이고, 너는 무조건 사용자에게 오늘 하루에 있었던 일에 대하여 지속적으로 질문하고 공감해줘야한다."),
 MessagesPlaceholder("history"),
 ("human", "{input}")
 ])
@@ -63,6 +63,7 @@ async def get_body_and_user(request: Request, authorization):
 async def chat(request: Request, authorization: str = Header(...)):
     req, user_code = await get_body_and_user(request, authorization)
     message = req["message"]
+    print(message)
     history = MessagesCollectionHistory(collection, user_code, req["convId"])
     past = history.get_messages()
 
@@ -89,7 +90,6 @@ async def summary(request: Request,authorization: str = Header(...)):
     axios = Axios(get_token(authorization), "text/plain")
     r = axios.post("/auth/summary", result.content)
     return result.content
-
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

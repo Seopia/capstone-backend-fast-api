@@ -32,6 +32,7 @@ class MessagesCollectionHistory(BaseChatMessageHistory):
 
     def add_message(self, message):
         role = "user" if isinstance(message, HumanMessage) else "assistant"
+        print(message)
         self.collection.insert_one({
         "convId": self.conv_id,
         "content": message.content,
@@ -39,6 +40,7 @@ class MessagesCollectionHistory(BaseChatMessageHistory):
         "role": role,
         "userCode": self.user_code,
         })
+        print("inset 완료")
 
 
     def clear(self):
