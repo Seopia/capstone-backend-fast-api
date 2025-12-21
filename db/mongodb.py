@@ -1,0 +1,45 @@
+from datetime import datetime, timedelta
+
+from langchain_core.messages import HumanMessage, AIMessage
+from pymongo import MongoClient
+import os
+from bson import ObjectId
+class Mongodb:
+    def __init__(self):
+        url = os.getenv("MONGODB_URI")
+        client = MongoClient(url)
+        db = client["chatbot"]
+        self.chat_collection = db["messages"]
+
+    def _filter(self, user_code, conv_id):
+        f = {"userCode": user_code}
+        if conv_id:
+            f["convId"] = conv_id
+        return f
+
+    def get_chat_history(self, user_code, conv_id, year=datetime.now().year, month=datetime.now().month, day=datetime.now().day):
+        start = datetime(year, month, day)
+        end = start + timedelta(days=1)
+
+        docs = list(
+            self.chat_collection.find({
+                **self._filter(user_code, ObjectId(conv_id)),
+                "createAt": {
+                    "$gte": start,
+                    "$lt": end,
+                },
+            }).sort("createAt", 1)
+        )
+        out = []
+        for d in docs:
+            role = d.get("role")
+            content = d.get("content", "")
+            if role == "user":
+                out.append(HumanMessage(content=content))
+            else:
+                out.append(AIMessage(content=content))
+        return out
+
+    def add_message(self, message, user_code, conv_id):
+        role = "user" if isinstance(message, HumanMessage) else "assistant"
+        self.chat_collection.insert_one({"convId": ObjectId(conv_id),"content":message.content,"createAt":datetime.now(), "role":role,"userCode":user_code})
