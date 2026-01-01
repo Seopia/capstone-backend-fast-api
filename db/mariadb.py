@@ -1,5 +1,5 @@
 import os
-import pymysql
+import aiomysql
 from datetime import datetime, date
 from typing import Optional, Dict, Any
 
@@ -10,41 +10,52 @@ class MariaAnalysisRepo:
         self.db = os.getenv("MARIADB_DB")
         self.user = os.getenv("MARIADB_USER")
         self.password = os.getenv("MARIADB_PASSWORD")
+        self.pool = None
 
-    def _conn(self):
-        return pymysql.connect(
-            host=self.host,
-            port=self.port,
-            user=self.user,
-            password=self.password,
-            database=self.db,
-            charset="utf8mb4",
-            cursorclass=pymysql.cursors.DictCursor,
-            autocommit=True,
-        )
+    async def init_pool(self):
+        if not self.pool:
+            self.pool = await aiomysql.create_pool(
+                host=self.host,
+                port=self.port,
+                user=self.user,
+                password=self.password,
+                db=self.db,
+                charset="utf8mb4",
+                cursorclass=aiomysql.DictCursor,
+                autocommit=True,
+            )
 
-    def get_latest_by_user_and_date(self, user_code: int, target_date: date) -> Optional[Dict[str, Any]]:
-        sql = """
-        SELECT analysis_code, user_code, emotion_score, emotion_name, summary, create_at
-        FROM analysis_result
-        WHERE user_code = %s AND DATE(create_at) = %s
-        ORDER BY create_at DESC
-        LIMIT 1
-        """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, (user_code, target_date.strftime("%Y-%m-%d")))
-                row = cur.fetchone()
+    async def close(self):
+        if self.pool:
+            self.pool.close()
+            await self.pool.wait_closed()
+
+    async def get_latest_by_user_and_date(self, user_code: int, target_date: date) -> Optional[Dict[str, Any]]:
+        if not self.pool:
+             await self.init_pool()
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                sql = """
+                SELECT analysis_code, user_code, emotion_score, emotion_name, summary, create_at
+                FROM analysis_result
+                WHERE user_code = %s AND DATE(create_at) = %s
+                ORDER BY create_at DESC
+                LIMIT 1
+                """
+                await cur.execute(sql, (user_code, target_date.strftime("%Y-%m-%d")))
+                row = await cur.fetchone()
                 return row
 
-    def insert(self, user_code: int, emotion_score: float, emotion_name: str, summary: str, create_at: datetime) -> int:
-        sql = """
-        INSERT INTO analysis_result (user_code, emotion_score, emotion_name, summary, create_at)
-        VALUES (%s, %s, %s, %s, %s)
-        """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
+    async def insert(self, user_code: int, emotion_score: float, emotion_name: str, summary: str, create_at: datetime) -> int:
+        if not self.pool:
+             await self.init_pool()
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                sql = """
+                INSERT INTO analysis_result (user_code, emotion_score, emotion_name, summary, create_at)
+                VALUES (%s, %s, %s, %s, %s)
+                """
+                await cur.execute(
                     sql,
                     (
                         user_code,
@@ -56,15 +67,17 @@ class MariaAnalysisRepo:
                 )
                 return cur.lastrowid
 
-    def update(self, analysis_code: int, emotion_score: float, emotion_name: str, summary: str, create_at: datetime) -> None:
-        sql = """
-        UPDATE analysis_result
-        SET emotion_score=%s, emotion_name=%s, summary=%s, create_at=%s
-        WHERE analysis_code=%s
-        """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
+    async def update(self, analysis_code: int, emotion_score: float, emotion_name: str, summary: str, create_at: datetime) -> None:
+        if not self.pool:
+             await self.init_pool()
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                sql = """
+                UPDATE analysis_result
+                SET emotion_score=%s, emotion_name=%s, summary=%s, create_at=%s
+                WHERE analysis_code=%s
+                """
+                await cur.execute(
                     sql,
                     (
                         float(emotion_score),

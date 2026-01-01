@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from bson import ObjectId
 from langchain_core.messages import HumanMessage
@@ -68,13 +69,13 @@ class TransformerModel:
             "확률": scores,
             "척도값": score_0_5,
         }
-    def update_db(self, user_code, final_score, overall_emotion_label):
+    async def update_db(self, user_code, final_score, overall_emotion_label):
         target_date = datetime.now(self.seoul_tz).date()
         create_at = datetime.now(self.seoul_tz).replace(tzinfo=None)
-        latest = self.mariadb.get_latest_by_user_and_date(user_code=user_code, target_date=target_date)
+        latest = await self.mariadb.get_latest_by_user_and_date(user_code=user_code, target_date=target_date)
         if latest and latest.get("analysis_code"):
             summary_keep = None if latest.get("summary") is None else latest.get("summary")
-            self.mariadb.update(
+            await self.mariadb.update(
                 analysis_code=int(latest["analysis_code"]),
                 emotion_score=final_score,
                 emotion_name=overall_emotion_label,
@@ -83,7 +84,7 @@ class TransformerModel:
             )
         else:
 
-            self.mariadb.insert(
+            await self.mariadb.insert(
                 user_code=user_code,
                 emotion_score=final_score,
                 emotion_name=overall_emotion_label,
@@ -91,11 +92,7 @@ class TransformerModel:
                 create_at=create_at,
             )
 
-    def inference(self, user_code: int, conv_id: str):
-        messages = self.mongodb.get_chat_history(user_code, ObjectId(conv_id))
-        user_utterances = [msg.content for msg in messages if isinstance(msg, HumanMessage)]
-        if not user_utterances:
-            return None, None
+    def _compute_inference(self, user_utterances):
         analysis_results = []
         total_scale_score = 0.0
         for text in user_utterances:
@@ -109,10 +106,21 @@ class TransformerModel:
                 }
             )
             total_scale_score += float(analysis["척도값"])
-            avg_scale_score = self._clamp_0_5(total_scale_score / len(user_utterances))
-            final_score = round(avg_scale_score, 2)
-            overall_emotion_label = self._score_to_weather(final_score)
-            return [final_score, overall_emotion_label]
+        
+        avg_scale_score = self._clamp_0_5(total_scale_score / len(user_utterances))
+        final_score = round(avg_scale_score, 2)
+        overall_emotion_label = self._score_to_weather(final_score)
+        return final_score, overall_emotion_label
+
+    async def inference(self, user_code: int, conv_id: str):
+        messages = await self.mongodb.get_chat_history(user_code, ObjectId(conv_id))
+        user_utterances = [msg.content for msg in messages if isinstance(msg, HumanMessage)]
+        if not user_utterances:
+            return None, None
+        
+        # Offload CPU-bound inference loop to thread
+        final_score, overall_emotion_label = await asyncio.to_thread(self._compute_inference, user_utterances)
+        return [final_score, overall_emotion_label]
 
 
 

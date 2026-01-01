@@ -1,11 +1,12 @@
+import inspect
+import os
 from datetime import datetime
 from pytz import timezone
 
-from langchain_core.messages import HumanMessage, AIMessage
+from starlette.responses import StreamingResponse
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
-import os
-from starlette.responses import StreamingResponse
 
 class LlmModel:
     def __init__(self, mongodb, mariadb):
@@ -40,48 +41,75 @@ class LlmModel:
         self._maria = mariadb
         self._seoul_tz = timezone("Asia/Seoul")
 
-    def chat(self, message:str, user_code:int, conv_id, is_streaming=False, is_jailbreak=False):
-        past = self._mongo.get_chat_history(user_code, conv_id)
-        def get_streaming_response():
+    async def chat(self, message:str, rag_history:list, user_code:int, conv_id, is_streaming=False, is_jailbreak=False, callback=None):
+        recent_messages = await self._mongo.get_chat_history(user_code, conv_id, limit=10)
+        context_message = None
+        if rag_history:
+            rag_context_str = "다음은 사용자의 과거 대화 내용 중, 현재 질문과 유사한 내용입니다. 답변 시 참고하세요:\n"
+            for msg in rag_history:
+                role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+                rag_context_str += f"- {role}: {msg.content}\n"
+            context_message = SystemMessage(content=rag_context_str)
+        
+        final_history = recent_messages
+        if context_message:
+            final_history = [context_message] + recent_messages
+
+        async def get_streaming_response():
             chunks = []
             if is_jailbreak is False:
-                for chunk in self._chain.stream({"history": past, "input": message}):
+                async for chunk in self._chain.astream({"history": final_history, "input": message}):
                     text = getattr(chunk, "content", str(chunk))
                     chunks.append(text)
                     yield text
                 full = "".join(chunks)
-                self._mongo.add_message(HumanMessage(content=message), user_code, conv_id)
+                await self._mongo.add_message(HumanMessage(content=message), user_code, conv_id)
                 if full.strip():
-                    self._mongo.add_message(AIMessage(content=full), user_code, conv_id)
+                    await self._mongo.add_message(AIMessage(content=full), user_code, conv_id)
+                    if callback:
+                         if inspect.iscoroutinefunction(callback):
+                             await callback(full)
+                         else:
+                             callback(full)
             else:
-                msgs = past + [HumanMessage(content=message)]
-                for chunk in self.llm.stream(msgs):
+                msgs = final_history + [HumanMessage(content=message)]
+                async for chunk in self.llm.astream(msgs):
                     text = getattr(chunk, "content", str(chunk))
                     chunks.append(text)
                     yield text
                 full = "".join(chunks)
-                self._mongo.add_message(HumanMessage(content=message), user_code, conv_id)
+                await self._mongo.add_message(HumanMessage(content=message), user_code, conv_id)
                 if full.strip():
-                    self._mongo.add_message(AIMessage(content=full), user_code, conv_id)
+                    await self._mongo.add_message(AIMessage(content=full), user_code, conv_id)
+                    if callback:
+                         if inspect.iscoroutinefunction(callback):
+                             await callback(full)
+                         else:
+                             callback(full)
         if is_streaming:
             return StreamingResponse(get_streaming_response(), media_type="text/plain; charset=utf-8")
         else:
-            full = self._chain.invoke({"history": past, "input": message})
+            full = await self._chain.ainvoke({"history": final_history, "input": message})
             text = getattr(full, "content", str(full))
-            self._mongo.add_message(HumanMessage(content=message), user_code, conv_id)
+            await self._mongo.add_message(HumanMessage(content=message), user_code, conv_id)
             if text.strip():
-                self._mongo.history.add_message(AIMessage(content=text), user_code, conv_id)
+                await self._mongo.add_message(AIMessage(content=text), user_code, conv_id)
+                if callback:
+                        if inspect.iscoroutinefunction(callback):
+                            await callback(text)
+                        else:
+                            callback(text)
             return text
 
-    def summary(self, user_code, conv_id, year, month, day):
-        past = self._mongo.get_chat_history(user_code, conv_id, year, month, day)
-        result = self._summary_chain.invoke({"history": past})
+    async def summary(self, user_code, conv_id, year, month, day):
+        past = await self._mongo.get_chat_history(user_code, conv_id, year, month, day)
+        result = await self._summary_chain.ainvoke({"history": past})
         summary_text = (result.content or "").strip()
 
-        latest = self._maria.get_latest_by_user_and_date(user_code=user_code, target_date=datetime(year, month, day, tzinfo=self._seoul_tz).date())
+        latest = await self._maria.get_latest_by_user_and_date(user_code=user_code, target_date=datetime(year, month, day, tzinfo=self._seoul_tz).date())
         create_at = datetime(year, month, day, tzinfo=self._seoul_tz).replace(tzinfo=None)
         if latest and latest.get("analysis_code"):
-            self._maria.update(
+            await self._maria.update(
                 analysis_code=int(latest["analysis_code"]),
                 emotion_score=float(latest.get("emotion_score") or 0.0),
                 emotion_name=latest.get("emotion_name") or "",
@@ -89,7 +117,7 @@ class LlmModel:
                 create_at=create_at,
             )
         else:
-            self._maria.insert(
+            await self._maria.insert(
                 user_code=user_code,
                 emotion_score=0.0,
                 emotion_name="",
