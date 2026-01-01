@@ -91,8 +91,8 @@ class TransformerModel:
                 create_at=create_at,
             )
 
-    def inference(self, user_code: int, conv_id: ObjectId):
-        messages = self.mongodb.get_chat_history(user_code, conv_id)
+    def inference(self, user_code: int, conv_id: str):
+        messages = self.mongodb.get_chat_history(user_code, ObjectId(conv_id))
         user_utterances = [msg.content for msg in messages if isinstance(msg, HumanMessage)]
         if not user_utterances:
             return None, None

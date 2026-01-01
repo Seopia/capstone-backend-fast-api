@@ -19,39 +19,50 @@ class LlmModel:
                     "안좋은 내용이 있더라도 객관적으로 작성해야한다. 또한 대화를 한 것을 요약하여 일기를 작성하는 것이 아니라, user가 무슨 일을 겪고, 어떤 일이 있었는지 등으로 작성해야 한다.",
                 ),
                 MessagesPlaceholder("history"),
-                ("human", "이 history를 기반으로 모두 대화를 요약하고, 내 관점에서 일기를 작성해줘."),
+                ("human", "이 history를 기반으로 모두 대화를 요약하고, 내 관점에서 제목, 날짜를 작성하고,일기를 마크다운 문법으로 작성해줘."),
             ]
         )
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    "너는 사용자의 감정을 깊게 공감하는 정신 건강 상담 챗봇이고, "
-                    "너는 무조건 사용자에게 오늘 하루에 있었던 일에 대하여 지속적으로 질문하고 공감해줘야한다. 친한 친구 처럼 편하게 이야기해야한다.",
+                    "너는 사용자의 감정을 깊게 공감하는 정신 건강 상담 챗봇이고, 답변은 마크다운 문법을 사용하여 보기 좋게 작성해야한다. 제목은 # 기호를 사용하고, 목록은 *  또는 - 기호를 사용해 작성해야한다."
+                    "너는 무조건 사용자에게 오늘 하루에 있었던 일에 대하여 지속적으로 질문하고 공감해줘야한다 또한 가능하면 해결책을 제시해야한다. 친한 친구 처럼 편하게 이야기해야한다. 유저의 채팅이 짧으면 짧게, 길면 길게 답변해야한다.",
                 ),
                 MessagesPlaceholder("history"),
                 ("human", "{input}"),
             ]
         )
-        llm = ChatOpenAI(model="gpt-4.1-nano", openai_api_key=key)
-        self._chain = prompt | llm
-        self._summary_chain = summary_prompt | llm
+        self.llm = ChatOpenAI(model="gpt-4.1-nano", openai_api_key=key)
+        self._chain = prompt | self.llm
+        self._summary_chain = summary_prompt | self.llm
         self._mongo = mongodb
         self._maria = mariadb
         self._seoul_tz = timezone("Asia/Seoul")
 
-    def chat(self, message:str, user_code:int, conv_id, is_streaming=False):
+    def chat(self, message:str, user_code:int, conv_id, is_streaming=False, is_jailbreak=False):
         past = self._mongo.get_chat_history(user_code, conv_id)
         def get_streaming_response():
             chunks = []
-            for chunk in self._chain.stream({"history": past, "input": message}):
-                text = getattr(chunk, "content", str(chunk))
-                chunks.append(text)
-                yield text
-            full = "".join(chunks)
-            self._mongo.add_message(HumanMessage(content=message), user_code, conv_id)
-            if full.strip():
-                self._mongo.add_message(AIMessage(content=full), user_code, conv_id)
+            if is_jailbreak is False:
+                for chunk in self._chain.stream({"history": past, "input": message}):
+                    text = getattr(chunk, "content", str(chunk))
+                    chunks.append(text)
+                    yield text
+                full = "".join(chunks)
+                self._mongo.add_message(HumanMessage(content=message), user_code, conv_id)
+                if full.strip():
+                    self._mongo.add_message(AIMessage(content=full), user_code, conv_id)
+            else:
+                msgs = past + [HumanMessage(content=message)]
+                for chunk in self.llm.stream(msgs):
+                    text = getattr(chunk, "content", str(chunk))
+                    chunks.append(text)
+                    yield text
+                full = "".join(chunks)
+                self._mongo.add_message(HumanMessage(content=message), user_code, conv_id)
+                if full.strip():
+                    self._mongo.add_message(AIMessage(content=full), user_code, conv_id)
         if is_streaming:
             return StreamingResponse(get_streaming_response(), media_type="text/plain; charset=utf-8")
         else:

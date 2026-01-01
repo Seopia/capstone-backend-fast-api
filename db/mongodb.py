@@ -17,7 +17,12 @@ class Mongodb:
             f["convId"] = conv_id
         return f
 
-    def get_chat_history(self, user_code, conv_id, year=datetime.now().year, month=datetime.now().month, day=datetime.now().day):
+    def get_chat_history(self, user_code, conv_id, year=None, month=None, day=None):
+        now = datetime.now()
+        year = year or now.year
+        month = month or now.month
+        day = day or now.day
+
         start = datetime(year, month, day)
         end = start + timedelta(days=1)
 
