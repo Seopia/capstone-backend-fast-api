@@ -7,8 +7,10 @@ from starlette.responses import JSONResponse
 
 class JWTMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        url = str(request.url).replace(str(request.base_url), "")
+        if url.startswith("login"):
+            return await call_next(request)
         if request.method == "OPTIONS":
-            print("씨발 진짜")
             return Response(status_code=200)
         secret_key = os.getenv('JWT_SECRET')
         auth = request.headers.get('Authorization')

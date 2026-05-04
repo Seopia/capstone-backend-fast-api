@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 
 class LlmModel:
     def __init__(self, mongodb, mariadb):
-        key = os.getenv("OPEN_AI_KEY")
+        key = os.getenv("OPEN_AI_API_KEY")
         summary_prompt = ChatPromptTemplate.from_messages(
             [
                 (
