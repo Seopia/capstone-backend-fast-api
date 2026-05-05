@@ -7,16 +7,17 @@ from requests import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dto.kakao_response import KaKaoTokenResponse, KaKaoUserResponse
+from dto.token import DecodedToken
 from repo.user_repo import UserRepo
 from entity.entity import User
 
 
-def get_user(token: str | None = Cookie(default=None)):
-    if token is None:
+def get_user(refill_t: str | None = Cookie(default=None)) -> DecodedToken:
+    if refill_t is None:
         raise HTTPException(status_code=401, detail='토큰이 없습니다.')
     try:
-        payload = jwt.decode(token, os.environ['JWT_SECRET'], os.environ['JWT_ALGORITHM'])
-        return payload
+        payload = jwt.decode(refill_t, os.environ['JWT_SECRET'], os.environ['JWT_ALGORITHM'])
+        return DecodedToken.model_validate(payload)
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="토큰 해독 에러")
 
@@ -58,13 +59,14 @@ class LoginService:
                 raise HTTPException(status_code=500, detail=response.json())
         except Exception as e:
             print(e)
-    def create_jwt(self, oauth_id:str, properties:dict, is_refresh:bool=False) -> str:
+    def create_jwt(self, oauth_id:str, properties:dict, user_code, is_refresh:bool=False) -> str:
         if is_refresh:
             expire = datetime.now() + timedelta(minutes=float(self.JWT_REFRESH_EXPIRE_MINUTE))
         else:
             expire = datetime.now() + timedelta(minutes=float(self.JWT_EXPIRE_MINUTE))
         properties.update({"oauth_id": oauth_id})
         properties.update({"exp":expire})
+        properties.update({"user_code": user_code})
         return jwt.encode(properties, self.JWT_SECRET, algorithm=self.JWT_ALGORITHM)
 
     async def is_exist_user(self, kakao_user:KaKaoUserResponse, db:AsyncSession):
@@ -75,6 +77,7 @@ class LoginService:
                 await self.create_new_user(kakao_user, db)
             except Exception as e:
                 print(e)
+        return await self.user_repo.find_by_user_oauth_id(str(kakao_user.id), db)
 
     async def create_new_user(self, user: KaKaoUserResponse, db:AsyncSession):
         user: User = User(

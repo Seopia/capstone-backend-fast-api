@@ -8,9 +8,7 @@ from pydantic import BaseModel, Field
 #     role: str | None = Field(default=None, alias="role")
 
 class ChatRequest(BaseModel):
-    message: str
-    convId: str
-    isJailbreak: bool
+    content: str
 
 class SummaryRequest(BaseModel):
     convId: str

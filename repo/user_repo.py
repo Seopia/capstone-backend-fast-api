@@ -34,4 +34,4 @@ class UserRepo:
 
     async def find_by_user_oauth_id(self, oauth_id: str, db: AsyncSession):
         r = await db.execute(select(User).where(User.oauth_id == oauth_id))
-        return r
+        return r.scalar()
