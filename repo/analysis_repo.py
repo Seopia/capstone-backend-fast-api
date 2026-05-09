@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+
 from entity.entity import AnalysisResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,7 +9,7 @@ class AnalysisRepo:
     def __init__(self):
         pass
 
-    async def insert_today_emotion(self, emotion_score, emotion_name, user_code, db:AsyncSession):
+    async def insert_today_emotion(self, today_analyze:dict, emotion_name, user_code, db:AsyncSession):
         now = datetime.now()
         start_of_day = datetime(now.year, now.month, now.day)
         
@@ -21,12 +22,27 @@ class AnalysisRepo:
         existing = r.scalars().first()
         
         if existing:
-            existing.emotion_score = emotion_score
-            existing.emotion_name = emotion_name
+            sql = (update(AnalysisResult).where(AnalysisResult.analysis_code == existing.analysis_code)
+                   .values(
+                happy=today_analyze.get('기쁨'),
+                anger=today_analyze.get('분노'),
+                anxiety=today_analyze.get('불안'),
+                sadness=today_analyze.get('슬픔'),
+                calmness=today_analyze.get('평온'),
+                confusion=today_analyze.get('당황'),
+                emotion_name=emotion_name,
+            )
+            )
+            await db.execute(sql)
             await db.commit()
         else:
             data = AnalysisResult(
-                emotion_score=emotion_score,
+                happy=today_analyze.get('기쁨'),
+                anger=today_analyze.get('분노'),
+                anxiety=today_analyze.get('불안'),
+                sadness=today_analyze.get('슬픔'),
+                calmness=today_analyze.get('평온'),
+                confusion=today_analyze.get('당황'),
                 create_at=datetime.now(),
                 emotion_name=emotion_name,
                 user_code=user_code,

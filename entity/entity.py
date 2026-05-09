@@ -47,11 +47,16 @@ class Chat(Base):
 class AnalysisResult(Base):
     __tablename__ = 'analysis_result'
     analysis_code: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    emotion_score: Mapped[float] = mapped_column(Float, nullable=False)
+    happy: Mapped[float] = mapped_column(Float, nullable=True)
+    anger:Mapped[float] = mapped_column(Float, nullable=True)
+    anxiety: Mapped[float] = mapped_column(Float, nullable=True)
+    sadness: Mapped[float] = mapped_column(Float, nullable=True)
+    calmness: Mapped[float] = mapped_column(Float, nullable=True)
+    confusion: Mapped[float] = mapped_column(Float, nullable=True)
     create_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     emotion_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    summary: Mapped[str] = mapped_column(String(6000), nullable=False)
+    summary: Mapped[str] = mapped_column(String(6000), nullable=True)
     user_code: Mapped[int] = mapped_column(BigInteger, ForeignKey('user.user_code'), nullable=False)
     user: Mapped[User] = relationship("User", back_populates="analysis_result")
     def __repr__(self):
-        return f"Chat(analysis_code: {self.analysis_code}, emotion_score: {self.emotion_score}, create_at: {self.create_at}, emotion_name: {self.emotion_name}, summary: {self.summary}, user_code: {self.user_code})"
+        return f"Chat(analysis_code: {self.analysis_code}, create_at: {self.create_at}, emotion_name: {self.emotion_name}, summary: {self.summary}, user_code: {self.user_code})"

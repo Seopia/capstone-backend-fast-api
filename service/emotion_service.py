@@ -39,7 +39,7 @@ class EmotionService:
     async def insert_today_emotion(self, today_analyze: dict, user:DecodedToken, db:AsyncSession):
         emotion_name, emotion_score = max(today_analyze.items(), key=lambda x: x[1])
         user_code:int = user.user_code
-        await self.analysis_repo.insert_today_emotion(emotion_score, emotion_name, user_code, db)
+        await self.analysis_repo.insert_today_emotion(today_analyze, emotion_name, user_code, db)
 
     async def get_today_chats(self, user, db) -> list[Chat]:
         chats:list[Chat] = await self.chat_repo.get_today_chat(user.user_code, db)
