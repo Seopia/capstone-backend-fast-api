@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, String, DateTime, Boolean, ForeignKey
+from sqlalchemy import BigInteger, String, DateTime, Boolean, ForeignKey, Float
 from sqlalchemy.orm import Mapped, relationship, mapped_column
 
 from db.mariadb_orm import Base
@@ -25,6 +25,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
+    analysis_result: Mapped[list["AnalysisResult"]] = relationship(
+        "AnalysisResult",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
 
 class Chat(Base):
     __tablename__ = 'chat'
@@ -39,4 +44,14 @@ class Chat(Base):
         return f"Chat(chat_id: {self.chat_id}, user_code: {self.user_code}, content: {self.content}, role: {self.role}, create_at: {self.create_at})"
 
 
-
+class AnalysisResult(Base):
+    __tablename__ = 'analysis_result'
+    analysis_code: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    emotion_score: Mapped[float] = mapped_column(Float, nullable=False)
+    create_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    emotion_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    summary: Mapped[str] = mapped_column(String(6000), nullable=False)
+    user_code: Mapped[int] = mapped_column(BigInteger, ForeignKey('user.user_code'), nullable=False)
+    user: Mapped[User] = relationship("User", back_populates="analysis_result")
+    def __repr__(self):
+        return f"Chat(analysis_code: {self.analysis_code}, emotion_score: {self.emotion_score}, create_at: {self.create_at}, emotion_name: {self.emotion_name}, summary: {self.summary}, user_code: {self.user_code})"

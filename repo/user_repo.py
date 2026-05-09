@@ -2,6 +2,8 @@ from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+from dto.token import DecodedToken
 from entity.entity import User
 
 class UserRepo:
@@ -35,3 +37,9 @@ class UserRepo:
     async def find_by_user_oauth_id(self, oauth_id: str, db: AsyncSession):
         r = await db.execute(select(User).where(User.oauth_id == oauth_id))
         return r.scalar()
+
+    async def get_me(self, user: DecodedToken, db:AsyncSession):
+        r = await db.execute(select(User.user_code, User.name, User.profile_img).where(User.oauth_id == user.oauth_id))
+        r = r.mappings().one_or_none()
+        print(r)
+        return r

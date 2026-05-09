@@ -116,3 +116,6 @@ class LoginService:
         payload.update({"exp":datetime.now() + timedelta(minutes=float(self.JWT_EXPIRE_MINUTE))})
         new_access_token = jwt.encode(payload, self.JWT_SECRET, algorithm=self.JWT_ALGORITHM)
         return new_access_token
+
+    async def get_me(self, user, db):
+        return await self.user_repo.get_me(user, db)

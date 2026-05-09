@@ -1,14 +1,9 @@
 import json
 
 from langchain_core.messages import AIMessage, ToolMessage
-from langchain_core.prompts import ChatPromptTemplate
 from pymongo import MongoClient
 
-from dto.requests import ChatRequest, AnalyzeRequest, SummaryRequest
 from dto.token import DecodedToken
-from model.llm import LlmModel
-from model.transformer import TransformerModel
-from db.supabase_db import SupabaseClient
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.agents import create_agent
 import asyncio
@@ -60,55 +55,59 @@ async def search_vector_db_mental_health(query: str):
     return list(collection.aggregate(pipeline))
 
 class ChatService:
-    def __init__(self, chat_model: LlmModel, supabase_db: SupabaseClient, embedding_model: OpenAIEmbeddings, transformer: TransformerModel):
-        self.chat_model = chat_model
-        self.supabase_db = supabase_db
-        self.embedding_model = embedding_model
-        self.transformer = transformer
+    def __init__(self):
         self.repo = ChatRepo()
-
+        self.llm = ChatOpenAI(model="gpt-4o-mini", api_key=os.getenv("OPEN_AI_API_KEY"))
+        self.chat_model_tools = [search_vector_db_user_chat,search_vector_db_mental_health]
+        self.chat_model_system_prompt = "너는 사용자의 대화에 답변하는 AI이다.\n대화 기록만으로 답변할 수 있으면 도구를 사용하지 마라.\n사용자를 존중하며 높임말로 대답해라.\n당신은 전문가다. 전문가를 추천하지 말아라.\n도구를 사용했다면 그 내용을 바탕으로 자연스럽게 대답해라.\n답변할 때는 가독성을 높이기 위해 반드시 마크다운(Markdown) 문법을 적극적으로 활용해라. (예: 굵은 글씨, 목록, 표, 인용구 등)"
     async def get_chats(self, db:AsyncSession, user:DecodedToken, count:int=10):
         return await self.repo.get_chats(db, user, count)
 
-    async def response_llm(self, content: str, chats: list, user):
+    async def get_chats_by_page(self, db:AsyncSession, user:DecodedToken, page:int, size:int=20):
+        chats = await self.repo.get_chats_by_page(db, user, page, size)
+        is_last = len(chats) < size
+        content = [
+            {
+                "content": chat.content,
+                "role": "user" if chat.role == "human" else "ai",
+                "createAt": [
+                    chat.create_at.year,
+                    chat.create_at.month,
+                    chat.create_at.day,
+                    chat.create_at.hour,
+                    chat.create_at.minute,
+                    chat.create_at.second,
+                    chat.create_at.microsecond * 1000
+                ]
+            }
+            for chat in chats
+        ]
+        return {
+            "last": is_last,
+            "content": content
+        }
+
+    async def response_llm(self, content: str, chats: list, user, db:AsyncSession):
         yield json.dumps({
             "type": "status",
             "message": "생각 중..."
         }, ensure_ascii=False) + "\n"
-        key = os.getenv("OPEN_AI_API_KEY")
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            openai_api_key=key,
-            temperature=0
-        )
-        tools = [search_vector_db_user_chat,search_vector_db_mental_health]
         agent = create_agent(
-            model=llm,
-            tools=tools,
-            system_prompt=(
-                "너는 사용자의 대화에 답변하는 AI다. "
-                "대화 기록만으로 답변할 수 있으면 도구를 사용하지 마라. "
-                "답변에 필요한 정보가 대화 기록에 없거나, 외부 지식/문서 검색이 필요하다고 판단될 때만 도구를 사용해라. "
-                "사용자를 존중하며 높임말로 대답해라."
-                "당신은 충분한 전문가이다. 전문가를 추천하지 말고 자신있게 답변해라."
-                "도구 결과를 사용했다면 그 내용을 바탕으로 자연스럽게 답변해라."
-            )
+            model=self.llm,
+            tools=self.chat_model_tools,
+            system_prompt=self.chat_model_system_prompt
         )
-        chat_text = "\n".join(
-            f"{chat.role}: {chat.content}"
-            for chat in chats
-        )
+        chat_text = "\n".join(f"{chat.role}: {chat.content}"for chat in chats)
         payload = {
             "messages": [
                 {
                     "role": "user",
                     "content": f"""
-    [이전 대화]
-    {chat_text}
-
-    [현재 사용자 질문]
-    {content}
-    """
+                    [이전 대화]
+                    {chat_text}     
+                    [현재 사용자 질문]
+                    {content}
+                    """
                 }
             ]
         }
@@ -136,38 +135,28 @@ class ChatService:
 
                     elif isinstance(msg, AIMessage) and msg.content:
                         final_answer = msg.content
-
+        # 디비 저장
+        await self.repo.insert_chat(content, final_answer, user, db)
         yield json.dumps({
             "type": "final",
             "answer": final_answer
         }, ensure_ascii=False) + "\n"
 
-
-    async def chat(self, req: ChatRequest, user_code: int):
-        message = req.message
-        # Offload blocking embedding and supabase calls
-        embedded_query = await asyncio.to_thread(self.embedding_model.embed_query, message)
-        vector_search_history = await asyncio.to_thread(self.supabase_db.vector_search, embedded_query, 0.6, 10)
-        await asyncio.to_thread(self.supabase_db.insert_chat, user_code, message, embedded_query)
-
-        async def on_complete(ai_response: str):
-             embedded = await asyncio.to_thread(self.embedding_model.embed_query, ai_response)
-             await asyncio.to_thread(self.supabase_db.insert_chat, user_code, ai_response, embedded, "assistant")
-
-        return await self.chat_model.chat(message, vector_search_history, user_code, req.convId, is_streaming=True, is_jailbreak=req.isJailbreak, callback=on_complete)
-
-    async def summary(self, req: SummaryRequest, user_code: int):
-        return await self.chat_model.summary(user_code, req.convId, req.year, req.month, req.day)
-
-    async def analyze(self, req: AnalyzeRequest, user_code: int):
-        final_score, overall_emotion_label = await self.transformer.inference(user_code, req.convId)
-        if final_score is not None and overall_emotion_label is None:
-             pass
-
-        if final_score is None:
-             return {"message": "분석할 대화가 없습니다."}
-
-        await self.transformer.update_db(user_code, final_score, overall_emotion_label)
-        return {"message": "분석 완료", "score": final_score, "emotion": overall_emotion_label}
+    # async def summary(self, req: SummaryRequest, user_code: int):
+    #     return await self.chat_model.summary(user_code, req.convId, req.year, req.month, req.day)
+    #
+    # async def analyze(self, req: AnalyzeRequest, user_code: int):
+    #
+    #
+    #
+    #     final_score, overall_emotion_label = await self.transformer.inference(user_code, req.convId)
+    #     if final_score is not None and overall_emotion_label is None:
+    #          pass
+    #
+    #     if final_score is None:
+    #          return {"message": "분석할 대화가 없습니다."}
+    #
+    #     await self.transformer.update_db(user_code, final_score, overall_emotion_label)
+    #     return {"message": "분석 완료", "score": final_score, "emotion": overall_emotion_label}
 
 
