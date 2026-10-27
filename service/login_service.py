@@ -59,6 +59,7 @@ class LoginService:
                 raise HTTPException(status_code=500, detail=response.json())
         except Exception as e:
             print(e)
+            raise
     def create_jwt(self, oauth_id:str, properties:dict, user_code, is_refresh:bool=False) -> str:
         if is_refresh:
             expire = datetime.now() + timedelta(minutes=float(self.JWT_REFRESH_EXPIRE_MINUTE))
@@ -77,6 +78,7 @@ class LoginService:
                 await self.create_new_user(kakao_user, db)
             except Exception as e:
                 print(e)
+                raise
         return await self.user_repo.find_by_user_oauth_id(str(kakao_user.id), db)
 
     async def create_new_user(self, user: KaKaoUserResponse, db:AsyncSession):
@@ -119,3 +121,14 @@ class LoginService:
 
     async def get_me(self, user, db):
         return await self.user_repo.get_me(user, db)
+    
+    async def get_user(self, user, db):
+        return await self.user_repo.get_user(user, db)
+
+    async def modify_user(self, user:DecodedToken, db:AsyncSession, data):
+        original:User = await self.user_repo.get_me(user, db)
+        print(original, type(original))
+        original.nickname = data["name"]
+        original.bio = data["bio"]
+        await db.commit()
+        return True

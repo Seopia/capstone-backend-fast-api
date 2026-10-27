@@ -1,10 +1,12 @@
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from datetime import datetime
+
+from sqlalchemy import distinct, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from dto.token import DecodedToken
-from entity.entity import User
+from entity.entity import Chat, User
 
 class UserRepo:
     def __init__(self):
@@ -39,7 +41,39 @@ class UserRepo:
         return r.scalar()
 
     async def get_me(self, user: DecodedToken, db:AsyncSession):
-        r = await db.execute(select(User.user_code, User.name, User.profile_img).where(User.oauth_id == user.oauth_id))
-        r = r.mappings().one_or_none()
-        print(r)
+        r = await db.execute(select(User).where(User.oauth_id == user.oauth_id))
+        r = r.scalar_one_or_none()
         return r
+    
+    async def get_user(self, user:DecodedToken, db:AsyncSession):
+        r = await db.execute(select(User.name, User.profile_img, User.create_at, User.bio).where(User.oauth_id == user.oauth_id))
+        user_data = r.mappings().one_or_none()
+        if user_data is None:
+            return None
+
+        now = datetime.now()
+        month_start = datetime(now.year, now.month, 1)
+        if now.month == 12:
+            month_end = datetime(now.year + 1, 1, 1)
+        else:
+            month_end = datetime(now.year, now.month + 1, 1)
+
+        conversation_count_result = await db.execute(
+            select(func.count(distinct(func.date(Chat.create_at)))).where(
+                Chat.user_code == user.user_code,
+                Chat.role == "human",
+            )
+        )
+        month_count_result = await db.execute(
+            select(func.count(distinct(func.date(Chat.create_at)))).where(
+                Chat.user_code == user.user_code,
+                Chat.role == "human",
+                Chat.create_at >= month_start,
+                Chat.create_at < month_end,
+            )
+        )
+
+        result = dict(user_data)
+        result["conversation_count"] = conversation_count_result.scalar() or 0
+        result["month_count"] = month_count_result.scalar() or 0
+        return result

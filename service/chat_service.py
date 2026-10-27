@@ -12,6 +12,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from repo.chat_repo import ChatRepo
 from langchain_core.tools import tool
 import os
+
+SYSTEM_PROMPT = """
+너는 사용자의 대화에 답변하는 AI이다.
+
+[대화 원칙]
+- 사용자에게 존댓말을 사용한다.
+- 정확하고 명확하게 답변한다.
+- 답변은 Markdown 문법을 사용한다.
+- 당신은 이미 전문가입니다. 전문가와 상담하라고 하지 마십시오.
+
+[도구 사용 규칙]
+1. 사용자가 우울증, 불안장애, 공황장애, ADHD, 조현병 등
+   정신건강 및 정신의학과 관련된 질문을 한다면
+   반드시 search_vector_db_mental_health 도구를 호출한다.
+
+2. 정신건강 관련 질문에서는 모델이 이미 답을 알고 있더라도
+   반드시 전문 문서를 검색한 뒤 답변한다.
+
+3. 사용자의 과거 대화 정보가 필요한 경우에만
+   search_vector_db_user_chat 도구를 호출한다.
+
+4. 도구 검색 결과에 근거하여 답변하고,
+   검색 결과가 부족하면 해당 사실을 명확하게 설명한다.
+
+5. 일반적인 질문에는 불필요하게 도구를 호출하지 않는다.
+"""
+
 @tool
 async def search_vector_db_user_chat(query: str):
     """이 도구는 사용자의 현재 질문으로 사용자와 전에 했던 말을 벡터 검색하는 도구입니다. 사용자 대화에서 꼭 필요하다고 판단될 때 사용하세요. 매개변수는 사용자의 질문입니다."""
@@ -57,9 +84,9 @@ async def search_vector_db_mental_health(query: str):
 class ChatService:
     def __init__(self):
         self.repo = ChatRepo()
-        self.llm = ChatOpenAI(model="gpt-4o-mini", api_key=os.getenv("OPEN_AI_API_KEY"))
+        self.llm = ChatOpenAI(model="gpt-5-nano", api_key=os.getenv("OPEN_AI_API_KEY"))
         self.chat_model_tools = [search_vector_db_user_chat,search_vector_db_mental_health]
-        self.chat_model_system_prompt = "너는 사용자의 대화에 답변하는 AI이다.\n대화 기록만으로 답변할 수 있으면 도구를 사용하지 마라.\n사용자를 존중하며 높임말로 대답해라.\n당신은 전문가다. 전문가를 추천하지 말아라.\n도구를 사용했다면 그 내용을 바탕으로 자연스럽게 대답해라.\n답변할 때는 가독성을 높이기 위해 반드시 마크다운(Markdown) 문법을 적극적으로 활용해라. (예: 굵은 글씨, 목록, 표, 인용구 등)"
+        self.chat_model_system_prompt = SYSTEM_PROMPT
     async def get_chats(self, db:AsyncSession, user:DecodedToken, count:int=10):
         return await self.repo.get_chats(db, user, count)
 
@@ -103,11 +130,11 @@ class ChatService:
                 {
                     "role": "user",
                     "content": f"""
-                    [이전 대화]
-                    {chat_text}     
-                    [현재 사용자 질문]
-                    {content}
-                    """
+                        [이전 대화]
+                        {chat_text}     
+                        [현재 사용자 질문]
+                        {content}
+                        """
                 }
             ]
         }
@@ -141,22 +168,4 @@ class ChatService:
             "type": "final",
             "answer": final_answer
         }, ensure_ascii=False) + "\n"
-
-    # async def summary(self, req: SummaryRequest, user_code: int):
-    #     return await self.chat_model.summary(user_code, req.convId, req.year, req.month, req.day)
-    #
-    # async def analyze(self, req: AnalyzeRequest, user_code: int):
-    #
-    #
-    #
-    #     final_score, overall_emotion_label = await self.transformer.inference(user_code, req.convId)
-    #     if final_score is not None and overall_emotion_label is None:
-    #          pass
-    #
-    #     if final_score is None:
-    #          return {"message": "분석할 대화가 없습니다."}
-    #
-    #     await self.transformer.update_db(user_code, final_score, overall_emotion_label)
-    #     return {"message": "분석 완료", "score": final_score, "emotion": overall_emotion_label}
-
 

@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DATABASE_URL = (
-    f"mysql+asyncmy://{os.getenv('MARIADB_USER')}:"
+    f"mysql+aiomysql://{os.getenv('MARIADB_USER')}:"
     f"{os.getenv('MARIADB_PASSWORD')}@"
     f"{os.getenv('MARIADB_HOST')}:{os.getenv('MARIADB_PORT', '3306')}/"
     f"{os.getenv('MARIADB_DB')}?charset=utf8mb4"
@@ -13,7 +13,6 @@ DATABASE_URL = (
 
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,
     pool_pre_ping=True,
 )
 
@@ -28,6 +27,10 @@ class Base(DeclarativeBase):
     pass
 
 async def init_db():
+
+    print("DATABASE_URL:", DATABASE_URL)
+    print("등록된 테이블:", Base.metadata.tables.keys())
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

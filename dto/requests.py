@@ -18,3 +18,14 @@ class SummaryRequest(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     convId: str
+
+class DiaryCreateRequest(BaseModel):
+    date: str
+
+class PostCreateRequest(BaseModel):
+    title: str
+    content: str | None = None
+    analysis_code: int
+
+class CommentCreateRequest(BaseModel):
+    content: str

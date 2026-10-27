@@ -57,3 +57,17 @@ class ChatRepo:
         )
         r = r.scalars().all()
         return r
+
+    async def get_chats_by_date(self, user_code: int, target_date: datetime.date, db: AsyncSession):
+        from datetime import time, timedelta
+        start = datetime.combine(target_date, time.min)
+        end = start + timedelta(days=1)
+        r = await db.execute(
+            select(Chat).where(
+                Chat.user_code == user_code,
+                Chat.create_at >= start,
+                Chat.create_at < end
+            ).order_by(Chat.create_at.asc(), Chat.chat_id.asc())
+        )
+        return r.scalars().all()
+
