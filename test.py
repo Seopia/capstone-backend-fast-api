@@ -13,3 +13,6 @@ response = requests.post("http://localhost:5678/webhook/fastapi-error", {
 
 print(response.status_code)
 print(response.text)
+
+def get_chat_data():
+    return None

@@ -88,7 +88,7 @@ class ErrorReportingMiddleware:
 async def send_error(error):
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.post("http://localhost:5678/webhook/fastapi-error", json=error)
+            response = await client.post("http://localhost:5678/webhook-test/fastapi-error", json=error)
             response.raise_for_status()
     except Exception as e:
         print("Error 전달 중 Error 발생....", e)

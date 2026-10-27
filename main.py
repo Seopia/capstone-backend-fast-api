@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pytz import timezone
 import torch    # pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
+from test import get_chat_data
 from utils.error_handler import ErrorReportingMiddleware
 
 load_dotenv(".env")
@@ -43,7 +44,8 @@ def health_check():
 
 @app.get("/error")
 def error():
-    raise
+    data = get_chat_data()
+    return data["emotion"]
 
 
 
